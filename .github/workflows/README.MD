@@ -6,10 +6,6 @@ This repository contains some workflows that can be shared across all platform r
 
 Check if there is currently a freeze period in place.
 
-## updateRelease.yml
-
-Workflow that can be used to trigger an automatic update to the next release when a new milestone is created
-
 ## checkMergeCommits.yml
 
 Check if a PR contains unwanted merge commits.
@@ -40,7 +36,7 @@ It checks all artifacts that match the provided range and suggest a lower bound 
 
 Workflow that could be used as a timed action to check if any automatic code cleanup can be performed.
 Actions to perform must be defined in the configuration of the [quickfix-and-cleanup-mojo](https://github.com/eclipse-tycho/tycho/blob/main/RELEASE_NOTES.md#new-quickfix-and-cleanup-mojo)
-that is called by this action. For this purpose it uses the follwoing execution ids `cleanups` and `quickfixes`
+that is called by this action. For this purpose it uses the follwoing execution ids `cleanups`, `quickfixes` and `manifest`.
 
 ## updateTarget.yml
 
