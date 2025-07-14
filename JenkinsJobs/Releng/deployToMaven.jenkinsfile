@@ -14,6 +14,7 @@ pipeline {
 		maven 'maven-daemon'
 	}
 	environment {
+		DEPLOYMENT_TYPE = determineDeploymentType()
 		REPO = "${WORKSPACE}/repo"
 		CBI_AGGR = "${installLatestCbiAggr()}"
 		// Folder ~/.m2 is not writable for builds, ensure mvnd metadata are written within the workspace.
@@ -24,11 +25,15 @@ pipeline {
 	stages {
 		stage('Aggregate Maven repository') {
 			steps {
-				sh '''#!/bin/bash -e
-					FILE_SDK_AGGR="${WORKSPACE}/git-repo/eclipse.platform.releng/publish-to-maven-central/SDK4Mvn.aggr"
+				sh '''#!/bin/bash -xe
+					FILE_SDK_AGGR="${WORKSPACE}/git-repo/eclipse.platform.releng/deploy-to-maven/SDK4Mvn.aggr"
 					
+					# Set the specified source repository
+					if [ -n "${sourceRepository}" ]; then
+						sed -e "s|<repositories location=\\".*\\">|<repositories location=\\"${sourceRepository}\\">|" -i ${FILE_SDK_AGGR}
+					fi
 					# Set whether this is a snapshot build or not
-					if [ "${snapshotOrRelease}" = "-snapshot" ]; then
+					if [ "${DEPLOYMENT_TYPE}" != 'release' ]; then
 						sed -e 's/snapshot=".*"/snapshot="true"/g' -i ${FILE_SDK_AGGR}
 					fi
 					
@@ -45,6 +50,7 @@ pipeline {
 					
 					pushd ${REPO}
 					
+					set +x
 					echo "========== Repo aggregation completed ========="
 					
 					# Find all the artifact folders for all projects
@@ -65,7 +71,7 @@ pipeline {
 			}
 		}
 		stage('Validate repository') {
-			// Tests that each to-be-published artifact can transitively resolve all its dependencies.
+			// Tests that each to-be deployed artifact can transitively resolve all its dependencies.
 			steps {
 				dir('repo-validation') { // Do the work in a clean folder without a pom.xml
 					sh '''#!/bin/bash -xe
@@ -77,7 +83,7 @@ pipeline {
 				}
 			}
 		}
-		stage('Publish artifacts to Maven-Central') {
+		stage('Deploy artifacts') {
 			matrix {
 				axes {
 					axis { // environment variable is also used by called scripts!
@@ -86,7 +92,7 @@ pipeline {
 					}
 				}
 				stages {
-					stage('Publish project to Maven'){
+					stage('Deploy project to Maven'){
 						environment {
 							SETTINGS = "/home/jenkins/.m2/settings-deploy-ossrh-${PROJECT == 'platform' ? 'releng': PROJECT}.xml"
 							// The location of the temporarily file that contains the secret file content
@@ -95,7 +101,7 @@ pipeline {
 							MAVEN_GPG_PASSPHRASE = credentials("secret-subkeys-${PROJECT == 'platform' ? 'releng': PROJECT}.asc-passphrase")
 						}
 						steps {
-							dir("publish-${PROJECT}"){
+							dir("deploy-${PROJECT}"){
 								sh '''#!/bin/sh -xe
 									# Copy configuration pom into clean directory to stop maven from finding the .mvn folder of this git-repository
 									cp "${WORKSPACE}/git-repo/eclipse-platform-parent/pom.xml" eclipse-parent-pom.xml
@@ -134,7 +140,7 @@ pipeline {
 											SOURCES_ARG="-Dsources=${sourcesFile}"
 										else
 											SOURCES_ARG=""
-											echo "No ${sourcesFile}."
+											echo "Missing sources file ${sourcesFile}."
 										fi
 									
 										if [ -f "${javadocFile}" ]; then
@@ -142,7 +148,7 @@ pipeline {
 											JAVADOC_ARG="-Djavadoc=${javadocFile}"
 										else
 											JAVADOC_ARG=""
-											echo "No ${javadocFile}."
+											echo "Missing JavaDoc file ${javadocFile}."
 										fi
 										set -x
 									
@@ -172,6 +178,15 @@ pipeline {
 				body: "Please go to ${BUILD_URL}console and check the build failure.", mimeType: 'text/plain',
 				to: 'platform-releng-dev@eclipse.org', from:'genie.releng@eclipse.org'
 		}
+	}
+}
+
+def determineDeploymentType() {
+	if ("${sourceRepository}".trim() =~ /\/(?<version>\d+\.\d+)\/R-\k<version>(\.\d+)?-\d{12}(\/)?$/) {
+		input message: 'The specified P2 repository is a release and will be deployed to Maven-Central.', ok : 'Proceed deploying to Maven-Central'
+		return 'release'
+	} else {
+		return 'snapshot'
 	}
 }
 
